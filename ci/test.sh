@@ -96,14 +96,15 @@ if [ -z "$SKIP_PROXY_TESTS" ]; then
 	java -jar poxyproxy.jar --address 127.0.0.1 --port 8090 --credentials foo:bar --auth-type ntlm --quiet &
 fi
 
-if [ -z "$SKIP_NTLM_TESTS" ]; then
+if [ -z "$SKIP_HTTP_TESTS" ]; then
 	curl --location --silent --show-error https://github.com/ethomson/poxygit/releases/download/v0.4.0/poxygit-0.4.0.jar >poxygit.jar
+
+	HTTP_DIR=`mktemp -d ${TMPDIR}/http.XXXXXXXX`
+	git init --bare "${HTTP_DIR}/test.git"
 
 	echo ""
 	echo "Starting HTTP server..."
-	NTLM_DIR=`mktemp -d ${TMPDIR}/ntlm.XXXXXXXX`
-	git init --bare "${NTLM_DIR}/test.git"
-	java -jar poxygit.jar --address 127.0.0.1 --port 9000 --credentials foo:baz --quiet "${NTLM_DIR}" &
+	java -jar poxygit.jar --address 127.0.0.1 --port 9000 --quiet "${HTTP_DIR}" &
 fi
 
 if [ -z "$SKIP_SSH_TESTS" ]; then
@@ -192,61 +193,87 @@ if [ -z "$SKIP_GITDAEMON_TESTS" ]; then
 	echo ""
 	echo "Running gitdaemon tests"
 	echo ""
-
 	export GITTEST_REMOTE_URL="git://localhost/test.git"
 	run_test gitdaemon
+
+	echo ""
+	echo "Running gitdaemon tests (IPv6)"
+	echo ""
+	export GITTEST_REMOTE_URL="git://[::1]/test.git"
+	run_test gitdaemon
+
 	unset GITTEST_REMOTE_URL
 fi
 
 if [ -z "$SKIP_PROXY_TESTS" ]; then
+	export GITTEST_REMOTE_PROXY_USER="foo"
+	export GITTEST_REMOTE_PROXY_PASS="bar"
+
 	echo ""
 	echo "Running proxy tests (Basic authentication)"
 	echo ""
-
 	export GITTEST_REMOTE_PROXY_HOST="localhost:8080"
-	export GITTEST_REMOTE_PROXY_USER="foo"
-	export GITTEST_REMOTE_PROXY_PASS="bar"
 	run_test proxy
-	unset GITTEST_REMOTE_PROXY_HOST
-	unset GITTEST_REMOTE_PROXY_USER
-	unset GITTEST_REMOTE_PROXY_PASS
+
+	echo ""
+	echo "Running proxy tests (IPv6)"
+	echo ""
+	export GITTEST_REMOTE_PROXY_HOST="[::1]:8080"
+	run_test proxy
 
 	echo ""
 	echo "Running proxy tests (NTLM authentication)"
 	echo ""
-
 	export GITTEST_REMOTE_PROXY_HOST="localhost:8090"
-	export GITTEST_REMOTE_PROXY_USER="foo"
-	export GITTEST_REMOTE_PROXY_PASS="bar"
 	export GITTEST_FLAKY_RETRY=5
 	run_test proxy
+
 	unset GITTEST_FLAKY_RETRY
 	unset GITTEST_REMOTE_PROXY_HOST
-	unset GITTEST_REMOTE_PROXY_USER
-	unset GITTEST_REMOTE_PROXY_PASS
 fi
 
-if [ -z "$SKIP_NTLM_TESTS" ]; then
+if [ -z "$SKIP_HTTP_TESTS" ]; then
 	echo ""
-	echo "Running NTLM tests (IIS emulation)"
+	echo "Running HTTP tests (Anonymous)"
 	echo ""
+	export GITTEST_REMOTE_URL="http://localhost:9000/anonymous/test.git"
+	run_test anonymous_clone
 
-	export GITTEST_REMOTE_URL="http://localhost:9000/ntlm/test.git"
+	echo ""
+	echo "Running HTTP tests (Basic)"
+	echo ""
 	export GITTEST_REMOTE_USER="foo"
 	export GITTEST_REMOTE_PASS="baz"
+	export GITTEST_REMOTE_URL="http://localhost:9000/basic/test.git"
 	run_test auth_clone_and_push
+
+	echo ""
+	echo "Running HTTP tests (IPv6)"
+	echo ""
+	export GITTEST_REMOTE_URL="http://[::1]:9000/basic/test.git"
+	run_test auth_clone_and_push
+
 	unset GITTEST_REMOTE_URL
 	unset GITTEST_REMOTE_USER
 	unset GITTEST_REMOTE_PASS
+fi
 
-	echo ""
-	echo "Running NTLM tests (Apache emulation)"
-	echo ""
-
-	export GITTEST_REMOTE_URL="http://localhost:9000/broken-ntlm/test.git"
+if [ -z "$SKIP_HTTP_TESTS" -o -z "$SKIP_NTLM_TESTS" ]; then
 	export GITTEST_REMOTE_USER="foo"
 	export GITTEST_REMOTE_PASS="baz"
+
+	echo ""
+	echo "Running HTTP tests (NTLM with IIS emulation)"
+	echo ""
+	export GITTEST_REMOTE_URL="http://localhost:9000/ntlm/test.git"
 	run_test auth_clone_and_push
+
+	echo ""
+	echo "Running HTTP tests (NTLM with Apache emulation)"
+	echo ""
+	export GITTEST_REMOTE_URL="http://localhost:9000/broken-ntlm/test.git"
+	run_test auth_clone_and_push
+
 	unset GITTEST_REMOTE_URL
 	unset GITTEST_REMOTE_USER
 	unset GITTEST_REMOTE_PASS
@@ -267,8 +294,6 @@ if [ -z "$SKIP_NEGOTIATE_TESTS" -a -n "$GITTEST_NEGOTIATE_PASSWORD" ]; then
 	export GITTEST_REMOTE_URL="https://test.libgit2.org/kerberos/empty.git"
 	export GITTEST_REMOTE_DEFAULT="true"
 	run_test auth_clone
-	unset GITTEST_REMOTE_URL
-	unset GITTEST_REMOTE_DEFAULT
 
 	echo ""
 	echo "Running SPNEGO tests (expect/continue)"
@@ -278,25 +303,33 @@ if [ -z "$SKIP_NEGOTIATE_TESTS" -a -n "$GITTEST_NEGOTIATE_PASSWORD" ]; then
 	export GITTEST_REMOTE_DEFAULT="true"
 	export GITTEST_REMOTE_EXPECTCONTINUE="true"
 	run_test auth_clone
+
+	kdestroy -A
+
 	unset GITTEST_REMOTE_URL
 	unset GITTEST_REMOTE_DEFAULT
 	unset GITTEST_REMOTE_EXPECTCONTINUE
-
-	kdestroy -A
 fi
 
 if [ -z "$SKIP_SSH_TESTS" ]; then
-	echo ""
-	echo "Running ssh tests"
-	echo ""
-
-	export GITTEST_REMOTE_URL="ssh://localhost:2222/$SSHD_DIR/test.git"
 	export GITTEST_REMOTE_USER=$USER
 	export GITTEST_REMOTE_SSH_KEY="${HOME}/.ssh/id_rsa"
 	export GITTEST_REMOTE_SSH_PUBKEY="${HOME}/.ssh/id_rsa.pub"
 	export GITTEST_REMOTE_SSH_PASSPHRASE=""
 	export GITTEST_REMOTE_SSH_FINGERPRINT="${SSH_FINGERPRINT}"
+
+	echo ""
+	echo "Running ssh tests"
+	echo ""
+	export GITTEST_REMOTE_URL="ssh://localhost:2222/$SSHD_DIR/test.git"
 	run_test ssh
+
+	echo ""
+	echo "Running ssh tests (IPv6)"
+	echo ""
+	export GITTEST_REMOTE_URL="ssh://[::1]:2222/$SSHD_DIR/test.git"
+	run_test ssh
+
 	unset GITTEST_REMOTE_URL
 	unset GITTEST_REMOTE_USER
 	unset GITTEST_REMOTE_SSH_KEY

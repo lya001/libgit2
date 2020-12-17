@@ -296,6 +296,16 @@ void test_online_clone__custom_headers(void)
 	cl_git_pass(git_clone(&g_repo, LIVE_REPO_URL, "./foo", &g_options));
 }
 
+void test_online_clone__anonymous(void)
+{
+	if (!_remote_url)
+		clar__skip();
+
+	cl_git_pass(git_clone(&g_repo, _remote_url, "./foo", &g_options));
+	git_repository_free(g_repo); g_repo = NULL;
+	cl_fixture_cleanup("./foo");
+}
+
 static int cred_failure_cb(
 	git_credential **cred,
 	const char *url,
